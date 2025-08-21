@@ -1,0 +1,250 @@
+name: Document Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'QMS/**'
+      - 'DHF/**'
+      - 'RMF/**'
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'QMS/**'
+      - 'DHF/**'
+      - 'RMF/**'
+
+jobs:
+  validate-documents:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml markdown beautifulsoup4 jsonschema
+        
+    - name: Validate file naming conventions
+      run: |
+        python -c "
+        import os
+        import re
+        import sys
+        
+        def validate_naming():
+            errors = []
+            
+            # QMS file naming: SOP-XXX_Name.md (allow en-dash or hyphen in both positions)
+            for root, dirs, files in os.walk('QMS'):
+                for file in files:
+                    if file.endswith('.md'):
+                        if not re.match(r'^SOP[\u2011\u2012\u2013\u2014-]\d{3}_[A-Za-z0-9_\u2011\u2012\u2013\u2014-]+\.md$', file):
+                            errors.append(f'QMS file naming violation: {os.path.join(root, file)}')
+            
+            # DHF directory numbering: 01_Name format (allow various hyphens)
+            dhf_dirs = [d for d in os.listdir('DHF') if os.path.isdir(os.path.join('DHF', d))]
+            for dir_name in dhf_dirs:
+                if not re.match(r'^\d{2}_[A-Za-z0-9_\u2011\u2012\u2013\u2014-]+$', dir_name):
+                    errors.append(f'DHF directory naming violation: DHF/{dir_name}')
+            
+            # Document templates must have metadata (except sample files)
+            docs_files = []
+            for root, dirs, files in os.walk('docs'):
+                docs_files.extend([os.path.join(root, f) for f in files if f.endswith('.md')])
+                
+            for file_path in docs_files:
+                # Skip sample files and README files
+                if 'sample' in file_path.lower() or 'readme' in file_path.lower():
+                    continue
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if not content.startswith('---') or '---' not in content[3:]:
+                        errors.append(f'Missing YAML frontmatter: {file_path}')
+            
+            if errors:
+                print('Naming convention violations found:')
+                for error in errors:
+                    print(f'  - {error}')
+                sys.exit(1)
+            else:
+                print('All files pass naming convention checks')
+        
+        validate_naming()
+        "
+        
+    - name: Validate template completeness
+      run: |
+        python -c "
+        import os
+        import yaml
+        import sys
+        
+        def validate_templates():
+            errors = []
+            required_fields = {
+                'title': str,
+                'version': str,
+                'author': str,
+                'date': str,
+                'regulatory_mapping': list
+            }
+            
+            # Check all markdown files in docs/ for required metadata (except samples)
+            for root, dirs, files in os.walk('docs'):
+                for file in files:
+                    if file.endswith('.md'):
+                        file_path = os.path.join(root, file)
+                        # Skip sample files and README files
+                        if 'sample' in file_path.lower() or 'readme' in file_path.lower():
+                            continue
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                
+                            if content.startswith('---'):
+                                end_marker = content.find('---', 3)
+                                if end_marker != -1:
+                                    frontmatter = content[3:end_marker]
+                                    try:
+                                        metadata = yaml.safe_load(frontmatter)
+                                        if metadata:
+                                            for field, field_type in required_fields.items():
+                                                if field not in metadata:
+                                                    errors.append(f'{file_path}: Missing required field \"{field}\"')
+                                                elif not isinstance(metadata[field], field_type):
+                                                    errors.append(f'{file_path}: Field \"{field}\" has wrong type')
+                                    except yaml.YAMLError as e:
+                                        errors.append(f'{file_path}: Invalid YAML in frontmatter: {e}')
+                        except Exception as e:
+                            errors.append(f'{file_path}: Error reading file: {e}')
+            
+            if errors:
+                print('Template completeness violations found:')
+                for error in errors:
+                    print(f'  - {error}')
+                sys.exit(1)
+            else:
+                print('All templates pass completeness checks')
+        
+        validate_templates()
+        "
+        
+    - name: Validate regulatory mapping
+      run: |
+        python -c "
+        import os
+        import yaml
+        import sys
+        
+        def validate_regulatory():
+            errors = []
+            valid_regulations = [
+                'FDA 21 CFR 820.30',
+                'FDA 21 CFR 820.40', 
+                'FDA 21 CFR 820.181',
+                'FDA 21 CFR 820.184',
+                'FDA 21 CFR 11.200',
+                'ISO 13485:2016',
+                'ISO 14971'
+            ]
+            
+            for root, dirs, files in os.walk('docs'):
+                for file in files:
+                    if file.endswith('.md'):
+                        file_path = os.path.join(root, file)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                
+                            if content.startswith('---'):
+                                end_marker = content.find('---', 3)
+                                if end_marker != -1:
+                                    frontmatter = content[3:end_marker]
+                                    try:
+                                        metadata = yaml.safe_load(frontmatter)
+                                        if metadata and 'regulatory_mapping' in metadata:
+                                            for mapping in metadata['regulatory_mapping']:
+                                                if mapping not in valid_regulations:
+                                                    errors.append(f'{file_path}: Invalid regulatory mapping \"{mapping}\"')
+                                    except yaml.YAMLError:
+                                        pass  # Already handled in template validation
+                        except Exception:
+                            pass  # Already handled in template validation
+            
+            if errors:
+                print('Regulatory mapping violations found:')
+                for error in errors:
+                    print(f'  - {error}')
+                sys.exit(1)
+            else:
+                print('All regulatory mappings are valid')
+        
+        validate_regulatory()
+        "
+        
+    - name: Check document relationships
+      run: |
+        python -c "
+        import os
+        import re
+        import sys
+        
+        def check_relationships():
+            warnings = []
+            
+            # Check for orphaned documents (no references from other docs)
+            all_docs = []
+            for root, dirs, files in os.walk('.'):
+                for file in files:
+                    if file.endswith('.md') and not file.startswith('README'):
+                        all_docs.append(os.path.join(root, file))
+            
+            referenced_docs = set()
+            for doc_path in all_docs:
+                try:
+                    with open(doc_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        # Find markdown links and references
+                        links = re.findall(r'\[.*?\]\((.*?\.md)\)', content)
+                        for link in links:
+                            # Resolve relative paths
+                            if not link.startswith('/'):
+                                link = os.path.normpath(os.path.join(os.path.dirname(doc_path), link))
+                            referenced_docs.add(link)
+                except Exception:
+                    continue
+            
+            # Report potential orphans
+            for doc in all_docs:
+                if doc not in referenced_docs and 'docs/' in doc:
+                    warnings.append(f'Potentially orphaned document: {doc}')
+            
+            if warnings:
+                print('Document relationship warnings:')
+                for warning in warnings:
+                    print(f'  - {warning}')
+                print('Note: These are warnings, not failures')
+            else:
+                print('Document relationships look good')
+        
+        check_relationships()
+        "
+        
+    - name: Validation Summary
+      run: |
+        echo '✅ Document validation completed successfully'
+        echo 'All checks passed:'
+        echo '  - File naming conventions'
+        echo '  - Template completeness'
+        echo '  - Regulatory mapping validity'
+        echo '  - Document relationships'

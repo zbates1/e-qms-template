@@ -1,0 +1,144 @@
+name: Traceability Matrix Export
+
+on:
+  schedule:
+    # Run weekly on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    # Allow manual triggering
+    inputs:
+      export_format:
+        description: 'Export format'
+        required: false
+        default: 'pdf'
+        type: choice
+        options:
+          - pdf
+          - excel
+          - both
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+env:
+  TRACEABILITY_OUTPUT_DIR: ./traceability-reports
+
+jobs:
+  generate-traceability-matrix:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for complete traceability
+          
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas openpyxl jinja2 matplotlib weasyprint
+          
+      - name: Create output directory
+        run: mkdir -p ${{ env.TRACEABILITY_OUTPUT_DIR }}
+        
+      - name: Generate traceability matrix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          EXPORT_FORMAT: ${{ github.event.inputs.export_format || 'pdf' }}
+        run: |
+          python scripts/traceability-matrix.py \
+            --repo "$REPOSITORY" \
+            --token "$GITHUB_TOKEN" \
+            --output-dir "$TRACEABILITY_OUTPUT_DIR" \
+            --format "$EXPORT_FORMAT"
+            
+      - name: Validate traceability completeness
+        run: |
+          python scripts/document-validator.py \
+            --check-traceability \
+            --matrix-file "$TRACEABILITY_OUTPUT_DIR/traceability-matrix.json"
+            
+      - name: Upload traceability artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: traceability-matrix-${{ github.run_number }}
+          path: ${{ env.TRACEABILITY_OUTPUT_DIR }}
+          retention-days: 90
+          
+      - name: Generate compliance summary
+        run: |
+          python scripts/compliance-report.py \
+            --traceability-matrix "$TRACEABILITY_OUTPUT_DIR/traceability-matrix.json" \
+            --output "$TRACEABILITY_OUTPUT_DIR/compliance-summary.pdf"
+            
+      - name: Comment on latest PR (if exists)
+        if: success()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Find latest open PR
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 1
+            });
+            
+            if (pulls.length > 0) {
+              const pr = pulls[0];
+              const comment = `🔍 **Traceability Matrix Updated**
+              
+              A new traceability matrix has been generated and is available as a workflow artifact.
+              
+              **Run Details:**
+              - Workflow: [Traceability Export #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              - Format: ${process.env.EXPORT_FORMAT || 'pdf'}
+              - Generated: ${new Date().toISOString()}
+              
+              The matrix includes all requirements, design documents, verification tests, and risk management items with their relationships.`;
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: comment
+              });
+            }
+            
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Create an issue if traceability generation fails
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Traceability Matrix Generation Failed',
+              body: `The automated traceability matrix generation failed.
+              
+              **Workflow Run:** [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              **Trigger:** ${{ github.event_name }}
+              **Failed at:** ${new Date().toISOString()}
+              
+              Please review the workflow logs and ensure all required scripts are present and functional.
+              
+              **Required Scripts:**
+              - \`scripts/traceability-matrix.py\`
+              - \`scripts/document-validator.py\`
+              - \`scripts/compliance-report.py\``,
+              labels: ['bug', 'traceability', 'automation']
+            });

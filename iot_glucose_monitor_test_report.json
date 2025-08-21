@@ -1,0 +1,72 @@
+{
+  "total_tests": 7,
+  "passed_tests": 6,
+  "failed_tests": 1,
+  "pass_rate_percent": 85.71428571428571,
+  "test_results": [
+    {
+      "test_name": "Sensor Accuracy",
+      "passed": true,
+      "measured_value": 14.104793332032775,
+      "expected_value": 15.0,
+      "tolerance": 0.0,
+      "notes": "Average error: 4.18%, Max error: 14.10%"
+    },
+    {
+      "test_name": "Battery Life",
+      "passed": true,
+      "measured_value": 265.3193060169804,
+      "expected_value": 14.0,
+      "tolerance": 0.0,
+      "notes": "Average current: 36.12\u00b5A, Battery life: 265.3 days"
+    },
+    {
+      "test_name": "BLE Connectivity",
+      "passed": true,
+      "measured_value": 99.77000000000001,
+      "expected_value": 99.0,
+      "tolerance": 0.0,
+      "notes": "BLE: 99.77%, WiFi: 98.70%, Cellular: 100.00%"
+    },
+    {
+      "test_name": "Response Time",
+      "passed": true,
+      "measured_value": 4.3999999999999995,
+      "expected_value": 30000.0,
+      "tolerance": 0.0,
+      "notes": "Total latency: 4.4ms"
+    },
+    {
+      "test_name": "Environmental Robustness",
+      "passed": false,
+      "measured_value": 17.0,
+      "expected_value": 15.0,
+      "tolerance": 0.0,
+      "notes": "Max error across conditions: 17.0%"
+    },
+    {
+      "test_name": "Alarm System",
+      "passed": true,
+      "measured_value": 4.4713108824225944,
+      "expected_value": 5.0,
+      "tolerance": 0.0,
+      "notes": "Average detection: 3.2min, Max: 4.5min"
+    },
+    {
+      "test_name": "Cybersecurity",
+      "passed": true,
+      "measured_value": 5,
+      "expected_value": 5.0,
+      "tolerance": 0.0,
+      "notes": "Security features implemented: 5/5"
+    }
+  ],
+  "overall_status": "FAIL",
+  "timestamp": "2025-08-18 21:48:54",
+  "device_info": {
+    "device_name": "IoT Glucose Monitor Prototype",
+    "firmware_version": "0.1.0-alpha",
+    "hardware_revision": "Rev A",
+    "tester": "Greta (Testing Agent)"
+  }
+}

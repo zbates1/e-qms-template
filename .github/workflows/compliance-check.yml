@@ -1,0 +1,72 @@
+name: Compliance Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, review_requested]
+    paths:
+      - 'docs/**'
+      - 'QMS/**'
+      - 'DHF/**'
+      - 'RMF/**'
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  compliance-validation:
+    runs-on: ubuntu-latest
+    name: Pre-merge Compliance Validation
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml requests
+        
+    - name: Run compliance validation
+      id: compliance-check
+      run: |
+        python .github/scripts/compliance-validator.py
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PR_NUMBER: ${{ github.event.number }}
+        REPOSITORY: ${{ github.repository }}
+        
+    - name: Comment on PR if non-compliant
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          let comment = '## ❌ Compliance Check Failed\n\n';
+          
+          if (fs.existsSync('compliance-errors.txt')) {
+            const errors = fs.readFileSync('compliance-errors.txt', 'utf8');
+            comment += errors;
+          } else {
+            comment += 'Unknown compliance error occurred. Check workflow logs for details.';
+          }
+          
+          comment += '\n\n⚠️ **This PR cannot be merged until all compliance issues are resolved.**';
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+          
+    - name: Block merge if non-compliant
+      if: failure()
+      run: |
+        echo "::error::Compliance validation failed. PR cannot be merged."
+        exit 1
